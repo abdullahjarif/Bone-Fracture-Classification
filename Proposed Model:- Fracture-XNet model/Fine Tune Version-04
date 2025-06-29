@@ -1,0 +1,198 @@
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import tensorflow as tf
+from tensorflow.keras import layers, models, Model
+from tensorflow.keras.applications import DenseNet121, EfficientNetB0
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.layers import concatenate, Lambda
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from tensorflow.keras.optimizers import SGD
+# ==============================================
+# Kaggle Directory Setup
+# ==============================================
+WORKING_DIR = '/kaggle/working'
+os.makedirs(os.path.join(WORKING_DIR, 'plots'), exist_ok=True)
+
+# ==============================================
+# Model Constants
+# ==============================================
+IMG_SIZE = (224, 224)
+BATCH_SIZE = 32
+NUM_CLASSES = 3
+EPOCHS = 30
+
+# ==============================================
+# Hybrid Model Architecture
+# ==============================================
+def create_hybrid_model(input_shape=(224, 224, 3), num_classes=3):
+    input_tensor = layers.Input(shape=input_shape)
+
+    # DenseNet121 Branch
+    densenet_preprocessed = Lambda(
+        lambda x: tf.keras.applications.densenet.preprocess_input(x)
+    )(input_tensor)
+
+    densenet = DenseNet121(
+        include_top=False,
+        weights='imagenet',
+        input_shape=input_shape
+    )
+    densenet.trainable = False
+    densenet_features = densenet(densenet_preprocessed)
+    densenet_pool = layers.GlobalAveragePooling2D()(densenet_features)
+
+    # EfficientNetB0 Branch
+    efficientnet_preprocessed = Lambda(
+        lambda x: tf.keras.applications.efficientnet.preprocess_input(x)
+    )(input_tensor)
+
+    efficientnet = EfficientNetB0(
+        include_top=False,
+        weights='imagenet',
+        input_shape=input_shape
+    )
+    efficientnet.trainable = False
+    efficientnet_features = efficientnet(efficientnet_preprocessed)
+    efficientnet_pool = layers.GlobalAveragePooling2D()(efficientnet_features)
+
+    # Feature Fusion
+    merged = concatenate([densenet_pool, efficientnet_pool])
+
+    # Classification Head
+    x = layers.Dense(512, activation='relu')(merged)
+    x = layers.BatchNormalization()(x)
+    x = layers.Dropout(0.5)(x)
+    x = layers.Dense(256, activation='relu')(x)
+    x = layers.Dropout(0.4)(x)
+    outputs = layers.Dense(num_classes, activation='softmax')(x)
+
+    model = Model(inputs=input_tensor, outputs=outputs)
+    return model
+
+# ==============================================
+# Initialize and compile model
+# ==============================================
+# ==============================================
+# Initialize and compile model
+# ==============================================
+
+hybrid_model = create_hybrid_model()
+hybrid_model.compile(
+    optimizer=Adam(learning_rate=0.0001),
+    loss='categorical_crossentropy',
+    metrics=['accuracy']
+)
+# ==============================================
+# Data Preparation (Using Working Directory)
+# ==============================================
+# Update these paths according to your working directory structure
+train_dir = os.path.join(WORKING_DIR, 'train')
+val_dir = os.path.join(WORKING_DIR, 'val')
+test_dir = os.path.join(WORKING_DIR, 'test')
+
+# Verify directory existence
+print(f"Train directory exists: {os.path.exists(train_dir)}")
+print(f"Validation directory exists: {os.path.exists(val_dir)}")
+print(f"Test directory exists: {os.path.exists(test_dir)}")
+
+train_datagen = ImageDataGenerator(
+    rotation_range=30,
+    width_shift_range=0.2,
+    height_shift_range=0.2,
+    horizontal_flip=True
+)
+
+test_val_datagen = ImageDataGenerator()
+
+train_generator = train_datagen.flow_from_directory(
+    train_dir,
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode='categorical'
+)
+
+val_generator = test_val_datagen.flow_from_directory(
+    val_dir,
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode='categorical'
+)
+
+# ==============================================
+# Training Setup
+# ==============================================
+callbacks = [
+    EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True),
+    ModelCheckpoint(os.path.join(WORKING_DIR, 'best_model.h5'), save_best_only=True),
+    ReduceLROnPlateau(factor=0.2, patience=10)
+]
+
+history = hybrid_model.fit(
+    train_generator,
+    epochs=EPOCHS,
+    validation_data=val_generator,
+    callbacks=callbacks
+)
+
+# ==============================================
+# Evaluation
+# ==============================================
+test_generator = test_val_datagen.flow_from_directory(
+    test_dir,
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode='categorical',
+    shuffle=False
+)
+
+# Plot training history
+plt.figure(figsize=(14, 5))
+plt.subplot(1, 2, 1)
+plt.plot(history.history['accuracy'], 'go-', label='Train')
+plt.plot(history.history['val_accuracy'], 'ro-', label='Validation')
+plt.title('Accuracy Curves')
+plt.ylabel('Accuracy')
+plt.xlabel('Epoch')
+plt.legend()
+
+plt.subplot(1, 2, 2)
+plt.plot(history.history['loss'], 'go-', label='Train')
+plt.plot(history.history['val_loss'], 'ro-', label='Validation')
+plt.title('Loss Curves')
+plt.ylabel('Loss')
+plt.xlabel('Epoch')
+plt.legend()
+plt.savefig(os.path.join(WORKING_DIR, 'plots/training_history.png'))
+plt.show()
+
+# Confusion Matrix
+y_pred = np.argmax(hybrid_model.predict(test_generator), axis=1)
+cm = confusion_matrix(test_generator.classes, y_pred)
+
+classes = list(test_generator.class_indices.keys())
+
+plt.figure(figsize=(10, 8))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Purples',
+            xticklabels=classes, yticklabels=classes)
+plt.title('Confusion Matrix')
+plt.xlabel('Predicted')
+plt.ylabel('True')
+plt.xticks(rotation=45)
+plt.yticks(rotation=0)
+plt.tight_layout()
+plt.savefig(os.path.join(WORKING_DIR, 'plots/confusion_matrix.pdf'))
+plt.show()
+
+print(f"Plots saved to {os.path.join(WORKING_DIR, 'plots')}")
+
+# Classification Report
+print("\nClassification Report:")
+print(classification_report(test_generator.classes, y_pred, target_names=classes))
+
+# Final Evaluation
+test_loss, test_acc = hybrid_model.evaluate(test_generator)
+print(f"\nTest Accuracy: {test_acc:.4f}")
+print(f"Test Loss: {test_loss:.4f}")
