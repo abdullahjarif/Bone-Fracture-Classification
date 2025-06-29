@@ -1,0 +1,138 @@
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+import os
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import confusion_matrix
+import numpy as np
+
+# Configuration
+IMG_SIZE = (224, 224)
+BATCH_SIZE = 32
+
+# Data generators
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    rotation_range=20,
+    horizontal_flip=True
+)
+val_datagen = ImageDataGenerator(rescale=1./255)
+
+train_generator = train_datagen.flow_from_directory(
+    os.path.join(base_dir, 'train'),
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode='categorical'
+)
+
+val_generator = val_datagen.flow_from_directory(
+    os.path.join(base_dir, 'val'),
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode='categorical',
+    shuffle=False
+)
+
+# Model architecture - VGG19 instead of VGG16
+base_model = tf.keras.applications.VGG19(
+    weights='imagenet',
+    include_top=False,
+    input_shape=(224, 224, 3)
+)
+base_model.trainable = False
+
+model = models.Sequential([
+    base_model,
+    layers.GlobalAveragePooling2D(),
+    layers.Dense(256, activation='relu'),
+    layers.Dropout(0.5),
+    layers.Dense(3, activation='softmax')  # Change 3 to your number of classes
+])
+
+# Training
+model.compile(optimizer=Adam(1e-4), 
+              loss='categorical_crossentropy', 
+              metrics=['accuracy'])
+
+history = model.fit(
+    train_generator,
+    epochs=30,
+    validation_data=val_generator,
+    callbacks=[
+        EarlyStopping(patience=5, restore_best_weights=True),
+        ModelCheckpoint('vgg19_best.keras', save_best_only=True)
+    ]
+)
+
+# Evaluation (optional test generator)
+test_datagen = ImageDataGenerator(rescale=1./255)
+test_generator = test_datagen.flow_from_directory(
+    os.path.join(base_dir, 'test'),
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode='categorical',
+    shuffle=False
+)
+
+test_loss, test_acc = model.evaluate(test_generator)
+print(f"VGG19 Test Accuracy: {test_acc:.4f}")
+
+# Create output directory
+output_dir = '/content/drive/MyDrive/ML'
+os.makedirs(output_dir, exist_ok=True)
+
+# 1. Plot training history
+plt.figure(figsize=(12, 5))
+
+# Accuracy plot
+plt.subplot(1, 2, 1)
+plt.plot(history.history['accuracy'], 'go-', label='Train Accuracy')
+plt.plot(history.history['val_accuracy'], 'ro-', label='Validation Accuracy')
+plt.title('Accuracy Curves: VGG19')
+plt.ylabel('Accuracy')
+plt.xlabel('Epoch')
+plt.legend()
+
+# Loss plot
+plt.subplot(1, 2, 2)
+plt.plot(history.history['loss'], 'go-', label='Train Loss')
+plt.plot(history.history['val_loss'], 'ro-', label='Validation Loss')
+plt.title('Loss Curves: VGG19')
+plt.ylabel('Loss')
+plt.xlabel('Epoch')
+plt.legend()
+
+plt.tight_layout()
+plt.savefig(os.path.join(output_dir, 'training_curves_Vgg19.pdf'))
+plt.show()
+
+# 2. Generate confusion matrix
+# Get true labels and predictions
+test_generator.reset()
+y_true = test_generator.classes
+y_pred = model.predict(test_generator, steps=len(test_generator), verbose=1)
+y_pred = np.argmax(y_pred, axis=1)
+
+# Get class names
+class_names = list(train_generator.class_indices.keys())
+
+# Generate confusion matrix
+cm = confusion_matrix(y_true, y_pred)
+
+# Plot confusion matrix
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+            xticklabels=class_names, yticklabels=class_names)
+plt.title('Confusion Matrix: VGG19')
+plt.ylabel('True Label')
+plt.xlabel('Predicted Label')
+plt.xticks(rotation=45)
+plt.yticks(rotation=0)
+plt.tight_layout()
+plt.savefig(os.path.join(output_dir, 'confusion_matrix_VGG19.pdf'))
+plt.show()
+
+print(f"Plots saved to {output_dir}")
