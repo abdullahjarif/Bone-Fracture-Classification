@@ -1,0 +1,82 @@
+# EfficientNetB0 Configuration
+IMG_SIZE = (224, 224)
+BATCH_SIZE = 32
+
+# Preprocessing
+efficientnet_preprocess = tf.keras.applications.efficientnet.preprocess_input
+
+train_datagen = ImageDataGenerator(
+    preprocessing_function=efficientnet_preprocess,
+    zoom_range=0.25,
+    horizontal_flip=True
+)
+val_datagen = ImageDataGenerator(preprocessing_function=efficientnet_preprocess)
+
+train_generator = train_datagen.flow_from_directory(
+    os.path.join(base_dir, 'train'),
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode='categorical'
+)
+
+val_generator = val_datagen.flow_from_directory(
+    os.path.join(base_dir, 'val'),
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode='categorical',
+    shuffle=False
+)
+
+# Model
+base_model = tf.keras.applications.EfficientNetB0(
+    weights='imagenet',
+    include_top=False,
+    input_shape=(224, 224, 3)
+)
+base_model.trainable = False
+
+model = models.Sequential([
+    base_model,
+    layers.GlobalAveragePooling2D(),
+    layers.Dense(512, activation='relu'),
+    layers.Dropout(0.4),
+    layers.Dense(3, activation='softmax')
+])
+
+model.compile(optimizer=Adam(1e-4), loss='categorical_crossentropy', metrics=['accuracy'])
+
+history = model.fit(
+    train_generator,
+    epochs=30,
+    validation_data=val_generator,
+    callbacks=[
+        EarlyStopping(patience=5, monitor='val_accuracy'),
+        ModelCheckpoint('efficientnet_best.keras', save_best_only=True)
+    ]
+)
+
+# Plot curves
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+plt.plot(history.history['accuracy'],'bo-', label='Train')
+plt.plot(history.history['val_accuracy'],'ro-', label='Validation')
+plt.title('EfficientNetB0 Accuracy')
+plt.legend()
+
+plt.subplot(1, 2, 2)
+plt.plot(history.history['loss'],'bo-', label='Train')
+plt.plot(history.history['val_loss'],'ro-', label='Validation')
+plt.title('EfficientNetB0 Loss')
+plt.legend()
+plt.show()
+
+# Evaluation
+test_generator = val_datagen.flow_from_directory(
+    os.path.join(base_dir, 'test'),
+    target_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    class_mode='categorical',
+    shuffle=False
+)
+test_loss, test_acc = model.evaluate(test_generator)
+print(f"EfficientNetB0 Test Accuracy: {test_acc:.4f}")
