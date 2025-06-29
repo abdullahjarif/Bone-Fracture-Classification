@@ -1,0 +1,62 @@
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import confusion_matrix
+import numpy as np
+import os
+
+# Create output directory in Kaggle
+output_dir = '/content/drive/MyDrive/ML'
+os.makedirs(output_dir, exist_ok=True)
+
+# 1. Plot training history
+plt.figure(figsize=(12, 5))
+
+# Accuracy plot
+plt.subplot(1, 2, 1)
+plt.plot(history.history['accuracy'],'go-', label='Train Accuracy')
+plt.plot(history.history['val_accuracy'],'ro-', label='Validation Accuracy')
+plt.title('Accuracy Curves: ResNet50')
+plt.ylabel('Accuracy')
+plt.xlabel('Epoch')
+plt.legend()
+
+# Loss plot
+plt.subplot(1, 2, 2)
+plt.plot(history.history['loss'],'go-', label='Train Loss')
+plt.plot(history.history['val_loss'],'ro-', label='Validation Loss')
+plt.title('Loss Curves: ResNet50')
+plt.ylabel('Loss')
+plt.xlabel('Epoch')
+plt.legend()
+
+plt.tight_layout()
+plt.savefig(os.path.join(output_dir, 'training_curves_resnet50.pdf'))
+plt.show()
+
+# 2. Generate confusion matrix
+# Get true labels and predictions
+test_generator.reset()
+y_true = test_generator.classes
+y_pred = model.predict(test_generator, steps=len(test_generator), verbose=1)
+y_pred = np.argmax(y_pred, axis=1)
+
+# Get class names
+class_names = list(train_generator.class_indices.keys())
+
+# Generate confusion matrix
+cm = confusion_matrix(y_true, y_pred)
+
+# Plot confusion matrix
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Purples',
+            xticklabels=class_names, yticklabels=class_names)
+plt.title('Confusion Matrix: ResNet50')
+plt.ylabel('True Label')
+plt.xlabel('Predicted Label')
+plt.xticks(rotation=45)
+plt.yticks(rotation=0)
+plt.tight_layout()
+plt.savefig(os.path.join(output_dir, 'confusion_matrix_resnet50.pdf'))
+plt.show()
+
+print(f"Plots saved to {output_dir}")
